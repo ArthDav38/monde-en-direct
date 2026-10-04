@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Monde en direct — lecteur</title>
+<style>
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000;font-family:'Segoe UI',system-ui,sans-serif}
+  #wrap{position:fixed;inset:0;transform-origin:center}
+  #player{position:absolute;inset:0;width:100%;height:100%;border:0}
+  #info{position:fixed;margin:3vh 2.5vw;padding:1.2em 1.6em;border-radius:14px;color:#fff;
+    text-shadow:0 1px 6px rgba(0,0,0,.7);line-height:1.35;max-width:46vw;font-size:1.1vw;pointer-events:none}
+  #info.bl{left:0;bottom:0}#info.br{right:0;bottom:0;text-align:right}
+  #info.tl{left:0;top:0}#info.tr{right:0;top:0;text-align:right}
+  #name{font-size:1.7em;font-weight:600}#place{font-size:1.15em;opacity:.9}
+  #coords{font-size:.9em;opacity:.75;font-variant-numeric:tabular-nums;margin-top:.2em}
+  #clock{font-size:2.6em;font-weight:300;font-variant-numeric:tabular-nums;margin-top:.15em}
+  #date{font-size:1em;opacity:.85;text-transform:capitalize}
+  #btn{position:fixed;top:2.5vh;left:50%;transform:translateX(-50%);padding:.7em 1.4em;border:0;border-radius:999px;
+    background:rgba(0,0,0,.55);color:#fff;font-size:15px;cursor:pointer;opacity:.35;transition:opacity .2s}
+  #btn:hover{opacity:1;background:rgba(0,0,0,.8)}
+  #status{position:fixed;bottom:8px;left:50%;transform:translateX(-50%);color:#fc6;font-size:14px;
+    background:rgba(0,0,0,.65);padding:4px 12px;border-radius:8px;display:none}
+</style>
+</head>
+<body>
+<div id="wrap"><div id="player"></div></div>
+<div id="info" class="bl"><div id="name"></div><div id="place"></div><div id="coords"></div><div id="clock"></div><div id="date"></div></div>
+<button id="btn" title="Touche N ou flèche droite">⏭ Changer de caméra</button>
+<div id="status"></div>
+<script>
+/* Liste par défaut (utilisée si le lecteur est ouvert seul dans un navigateur).
+   Dans Wallpaper Engine, la liste de cameras.js est envoyée et remplace celle-ci. */
+let CAMERAS = [
+  { id:"dfVK7ld38Ys", name:"Shibuya Scramble Crossing", place:"Shibuya, Tokyo", country:"Japon", lat:35.6595, lon:139.7005, tz:"Asia/Tokyo" },
+  { id:"VGnFLdQW39A", name:"Skyline de Midtown (angles en rotation)", place:"Manhattan, New York", country:"États-Unis", lat:40.7580, lon:-73.9855, tz:"America/New_York" },
+  { id:"5uZa3-RMFos", name:"Port de Sydney", place:"Circular Quay, Sydney", country:"Australie", lat:-33.8611, lon:151.2080, tz:"Australia/Sydney" }
+];
+const cfg = { quality:'hd1080', interval:10, shuffle:true, volume:0, zoom:100, showInfo:true, showCoords:true,
+  h24:true, infoPos:'bl', infoSize:100, infoOpacity:55, infoColor:'#ffffff', showButton:true };
+const $ = id => document.getElementById(id);
+let player, order=[], pos=-1, timer=null, errCount=0, current=null, ready=false, started=false, gotInit=false, waited=false;
+
+function buildOrder(){
+  order = CAMERAS.map((_, i) => i);
+  if (cfg.shuffle) for (let i=order.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [order[i],order[j]]=[order[j],order[i]]; }
+  pos = -1;
+}
+function showStatus(t){ const s=$('status'); s.textContent=t; s.style.display=t?'block':'none'; }
+function next(){
+  clearTimeout(timer);
+  pos++; if (pos>=order.length){ buildOrder(); pos=0; }
+  current = CAMERAS[order[pos]];
+  const o = { videoId: current.id };
+  if (cfg.quality!=='auto') o.suggestedQuality = cfg.quality;
+  player.loadVideoById(o);
+  renderInfo();
+  timer = setTimeout(next, cfg.interval*60000);
+}
+function onError(e){
+  errCount++;
+  showStatus(`Erreur YouTube ${e.data} sur « ${current?current.name:'?'} » — caméra suivante…`);
+  clearTimeout(timer);
+  if (errCount>=CAMERAS.length){
+    showStatus(`Toutes les caméras échouent (dernier code ${e.data}). Nouvel essai dans 60 s.`);
+    timer = setTimeout(()=>{ errCount=0; showStatus(''); next(); }, 60000);
+  } else timer = setTimeout(next, 2500);
+}
+function onState(e){
+  if (e.data===YT.PlayerState.PLAYING){
+    errCount=0; showStatus(''); applyAudio();
+    if (cfg.quality!=='auto') try{ player.setPlaybackQuality(cfg.quality); }catch(_){}
+  } else if (e.data===YT.PlayerState.ENDED) next();
+}
+function applyAudio(){
+  if (!ready) return;
+  if (cfg.volume>0){ player.setVolume(cfg.volume); player.unMute(); } else player.mute();
+}
+function maybeStart(){
+  if (ready && !started && (gotInit || waited)){ started=true; buildOrder(); next(); }
+}
+window.onYouTubeIframeAPIReady = function(){
+  const vars = { autoplay:1, controls:0, mute:1, modestbranding:1, rel:0, iv_load_policy:3, disablekb:1, fs:0, playsinline:1 };
+  if (location.origin.startsWith('http')) vars.origin = location.origin;
+  player = new YT.Player('player', { width:'100%', height:'100%', playerVars:vars,
+    events:{ onReady:()=>{ ready=true; maybeStart(); }, onError, onStateChange:onState } });
+};
+const tag=document.createElement('script'); tag.src='https://www.youtube.com/iframe_api'; document.head.appendChild(tag);
+setTimeout(()=>{ waited=true; maybeStart(); }, 2500);
+
+/* ----- bandeau ----- */
+const fc=(v,p,n)=>Math.abs(v).toFixed(4)+'° '+(v>=0?p:n);
+function renderInfo(){
+  const c=current, i=$('info');
+  i.style.display = cfg.showInfo?'block':'none';
+  i.className = cfg.infoPos;
+  i.style.fontSize = (1.1*cfg.infoSize/100)+'vw';
+  i.style.background = `rgba(0,0,0,${cfg.infoOpacity/100})`;
+  i.style.color = cfg.infoColor;
+  $('wrap').style.transform = `scale(${cfg.zoom/100})`;
+  $('btn').style.display = cfg.showButton?'block':'none';
+  if(!c) return;
+  $('name').textContent = c.name;
+  $('place').textContent = [c.place,c.country].filter(Boolean).join(' — ');
+  const hasC = typeof c.lat==='number' && typeof c.lon==='number';
+  $('coords').style.display = (cfg.showCoords&&hasC)?'block':'none';
+  if(hasC) $('coords').textContent = '📍 '+fc(c.lat,'N','S')+', '+fc(c.lon,'E','W');
+  tick();
+}
+function tick(){
+  const c=current; if(!c) return;
+  const now=new Date(), tz=c.tz||undefined;
+  try{
+    const t=new Intl.DateTimeFormat('fr-FR',{timeZone:tz,hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:!cfg.h24}).format(now);
+    const d=new Intl.DateTimeFormat('fr-FR',{timeZone:tz,weekday:'long',day:'numeric',month:'long'}).format(now);
+    const h=+new Intl.DateTimeFormat('en-GB',{timeZone:tz,hour:'numeric',hourCycle:'h23'}).format(now);
+    const off=new Intl.DateTimeFormat('en-GB',{timeZone:tz,timeZoneName:'shortOffset'}).formatToParts(now).find(p=>p.type==='timeZoneName');
+    $('clock').textContent = ((h>=7&&h<20)?'☀️ ':'🌙 ')+t;
+    $('date').textContent = c.tz ? `${d} (${off?off.value:c.tz})` : `${d} (heure de ton PC)`;
+  }catch(_){ $('clock').textContent=''; }
+}
+setInterval(tick,1000);
+
+/* ----- bouton / clavier ----- */
+$('btn').addEventListener('click', ()=>{ if(started) next(); });
+addEventListener('keydown', e=>{ if(started && (e.key==='n'||e.key==='N'||e.key==='ArrowRight')) next(); });
+
+/* ----- messages venant de Wallpaper Engine (la coque locale) ----- */
+function applyCfg(n){
+  const oldShuffle=cfg.shuffle, oldQ=cfg.quality, oldInt=cfg.interval;
+  Object.assign(cfg,n);
+  renderInfo(); applyAudio();
+  if(!started) return;
+  if(cfg.shuffle!==oldShuffle){ const cur=current; buildOrder(); const k=order.indexOf(CAMERAS.indexOf(cur)); if(k>=0) pos=k; }
+  if(cfg.quality!==oldQ) try{ player.setPlaybackQuality(cfg.quality==='auto'?'default':cfg.quality); }catch(_){}
+  if(cfg.interval!==oldInt){ clearTimeout(timer); timer=setTimeout(next,cfg.interval*60000); }
+}
+addEventListener('message', e=>{
+  const m=e.data; if(!m||typeof m!=='object') return;
+  if(m.type==='init'){
+    if(Array.isArray(m.cameras)&&m.cameras.length) CAMERAS=m.cameras;
+    Object.assign(cfg,m.cfg||{}); gotInit=true; renderInfo();
+    if(started){ buildOrder(); next(); } else maybeStart();
+  } else if(m.type==='cfg') applyCfg(m.cfg||{});
+  else if(m.type==='next' && started) next();
+});
+try{ parent.postMessage({type:'ready'},'*'); }catch(_){}
+renderInfo();
+</script>
+</body>
+</html>
