@@ -7,8 +7,8 @@
 <title>Monde en direct — lecteur</title>
 <style>
   html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000;font-family:'Segoe UI',system-ui,sans-serif}
-  #wrap{position:fixed;inset:0;transform-origin:center}
-  #player{position:absolute;inset:0;width:100%;height:100%;border:0}
+  #wrap{position:fixed;top:0;left:0;right:0;bottom:0;transform-origin:center}
+  #player{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
   #info{position:fixed;margin:3vh 2.5vw;padding:1.2em 1.6em;border-radius:14px;color:#fff;
     text-shadow:0 1px 6px rgba(0,0,0,.7);line-height:1.35;max-width:46vw;font-size:1.1vw;pointer-events:none}
   #info.bl{left:0;bottom:0}#info.br{right:0;bottom:0;text-align:right}
@@ -145,7 +145,25 @@ addEventListener('message', e=>{
   } else if(m.type==='cfg') applyCfg(m.cfg||{});
   else if(m.type==='next' && started) next();
 });
-try{ parent.postMessage({type:'ready'},'*'); }catch(_){}
+
+/* ----- caméras passées par l'adresse (?c=...) ----- */
+try{
+  const c=new URLSearchParams(location.search).get('c');
+  if(c){ const list=JSON.parse(decodeURIComponent(escape(atob(c)))); if(Array.isArray(list)&&list.length){ CAMERAS=list; gotInit=true; } }
+}catch(_){}
+
+/* ----- propriétés Wallpaper Engine (le fond d'écran ouvre directement cette page) ----- */
+const rgb=v=>{const p=v.split(' ').map(x=>Math.round(parseFloat(x)*255));return `rgb(${p[0]},${p[1]},${p[2]})`;};
+let firstProps=true, lastNext;
+window.wallpaperPropertyListener={ applyUserProperties(p){
+  const d={};
+  ['quality','interval','shuffle','volume','zoom','showInfo','showCoords','h24','infoPos','infoSize','infoOpacity','showButton']
+    .forEach(k=>{ if(p[k]) d[k]=p[k].value; });
+  if(p.infoColor) d.infoColor=rgb(p.infoColor.value);
+  applyCfg(d);
+  if(p.nextCam){ if(!firstProps && p.nextCam.value!==lastNext && started) next(); lastNext=p.nextCam.value; }
+  firstProps=false;
+}};
 renderInfo();
 </script>
 </body>
